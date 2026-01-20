@@ -15,8 +15,11 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import PostDetail from "./pages/PostDetail";
 import CreatePost from "./pages/CreatePost";
+import EditPost from "./pages/EditPost";
 import Profile from "./pages/Profile";
+import EditProfile from "./pages/EditProfile";
 import Gallery from "./pages/Gallery";
+import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 
 // Protected Route Component
@@ -123,8 +126,32 @@ function App({ darkMode, toggleDarkMode }) {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/edit/:postId"
+            element={
+              <ProtectedRoute>
+                <EditPost />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/profile/:userId" element={<Profile />} />
+          <Route
+            path="/profile/:userId/edit"
+            element={
+              <ProtectedRoute>
+                <EditProfile />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/gallery" element={<Gallery />} />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <Admin />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Box>

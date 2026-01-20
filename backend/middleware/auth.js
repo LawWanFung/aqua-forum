@@ -60,4 +60,39 @@ const generateToken = (id) => {
   });
 };
 
-module.exports = { protect, generateToken };
+// Admin middleware
+const admin = (req, res, next) => {
+  if (req.user && (req.user.isAdmin || req.user.role === "admin")) {
+    next();
+  } else {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "Admin access required",
+      },
+    });
+  }
+};
+
+// Moderator middleware
+const moderator = (req, res, next) => {
+  if (
+    req.user &&
+    (req.user.isAdmin ||
+      req.user.role === "admin" ||
+      req.user.role === "moderator")
+  ) {
+    next();
+  } else {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "Moderator access required",
+      },
+    });
+  }
+};
+
+module.exports = { protect, generateToken, admin, moderator };

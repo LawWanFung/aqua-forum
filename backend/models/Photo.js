@@ -62,6 +62,15 @@ const photoSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    album: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Album",
+      default: null,
+    },
+    isPublic: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

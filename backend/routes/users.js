@@ -197,4 +197,56 @@ router.get("/:userId/posts", async (req, res) => {
   }
 });
 
+// @route   GET /api/users/:userId/bookmarks
+// @desc    Get user's bookmarked posts
+// @access  Private (only owner)
+router.get("/:userId/bookmarks", protect, async (req, res) => {
+  try {
+    // Check ownership
+    if (req.user._id.toString() !== req.params.userId) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: "FORBIDDEN",
+          message: "Not authorized to view these bookmarks",
+        },
+      });
+    }
+
+    const { page = 1, limit = 20 } = req.query;
+
+    const posts = await Post.find({ "engagement.bookmarks": req.user._id })
+      .sort({ "metadata.createdAt": -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit))
+      .populate("user", "username profile.avatar");
+
+    const total = await Post.countDocuments({
+      "engagement.bookmarks": req.user._id,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        posts,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get User Bookmarks Error:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Error getting user bookmarks",
+      },
+    });
+  }
+});
+
 module.exports = router;

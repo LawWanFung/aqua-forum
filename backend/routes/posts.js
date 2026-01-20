@@ -3,7 +3,9 @@ const router = express.Router();
 const { body, validationResult } = require("express-validator");
 const Post = require("../models/Post");
 const User = require("../models/User");
+const Tag = require("../models/Tag");
 const { protect } = require("../middleware/auth");
+const { cache, redisClient } = require("../utils/redis");
 
 // Auto-tagging algorithm (simple keyword-based)
 const generateTags = (title, content) => {
@@ -59,6 +61,15 @@ router.get("/", async (req, res) => {
       tag,
     } = req.query;
 
+    // Generate cache key
+    const cacheKey = `posts:${JSON.stringify(req.query)}`;
+
+    // Try to get from cache
+    const cachedData = await cache.get(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
     const query = {};
 
     // Filter by tag
@@ -74,7 +85,7 @@ router.get("/", async (req, res) => {
 
     const total = await Post.countDocuments(query);
 
-    res.json({
+    const responseData = {
       success: true,
       data: {
         posts,
@@ -85,7 +96,12 @@ router.get("/", async (req, res) => {
           pages: Math.ceil(total / limit),
         },
       },
-    });
+    };
+
+    // Cache for 2 minutes
+    await cache.set(cacheKey, responseData, 120);
+
+    res.json(responseData);
   } catch (error) {
     console.error("Get Posts Error:", error);
     res.status(500).json({
@@ -162,6 +178,15 @@ router.get("/search", async (req, res) => {
 // @access  Public
 router.get("/:postId", async (req, res) => {
   try {
+    // Generate cache key
+    const cacheKey = `post:${req.params.postId}`;
+
+    // Try to get from cache
+    const cachedData = await cache.get(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
     const post = await Post.findById(req.params.postId)
       .populate("user", "username profile.avatar profile.bio")
       .populate("engagement.likes", "username");
@@ -176,14 +201,19 @@ router.get("/:postId", async (req, res) => {
       });
     }
 
-    // Increment view count
+    // Increment view count (don't cache this change immediately)
     post.metadata.viewCount += 1;
     await post.save();
 
-    res.json({
+    const responseData = {
       success: true,
       data: post,
-    });
+    };
+
+    // Cache for 5 minutes
+    await cache.set(cacheKey, responseData, 300);
+
+    res.json(responseData);
   } catch (error) {
     console.error("Get Post Error:", error);
     res.status(500).json({
@@ -247,6 +277,20 @@ router.post(
         $inc: { "stats.postCount": 1 },
       });
 
+      // Track tag usage - increment usage count for all unique tags
+      const uniqueTagNames = [
+        ...new Set(allTags.map((t) => t.tag.toLowerCase())),
+      ];
+      await Promise.all(
+        uniqueTagNames.map(async (tagName) => {
+          await Tag.findOneAndUpdate(
+            { name: tagName },
+            { $inc: { usageCount: 1 } },
+            { upsert: true, new: true },
+          );
+        }),
+      );
+
       await post.populate("user", "username profile.avatar");
 
       res.status(201).json({
@@ -309,6 +353,10 @@ router.put("/:postId", protect, async (req, res) => {
       { new: true, runValidators: true },
     ).populate("user", "username profile.avatar");
 
+    // Invalidate cache
+    await cache.del(`post:${req.params.postId}`);
+    await cache.delPattern("posts:*");
+
     res.json({
       success: true,
       data: post,
@@ -361,6 +409,10 @@ router.delete("/:postId", protect, async (req, res) => {
       $inc: { "stats.postCount": -1 },
     });
 
+    // Invalidate cache
+    await cache.del(`post:${req.params.postId}`);
+    await cache.delPattern("posts:*");
+
     res.json({
       success: true,
       message: "Post deleted successfully",
@@ -407,6 +459,9 @@ router.post("/:postId/like", protect, async (req, res) => {
     }
 
     await post.save();
+
+    // Invalidate cache
+    await cache.del(`post:${req.params.postId}`);
 
     res.json({
       success: true,

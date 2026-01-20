@@ -1,5 +1,8 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const compression = require("compression");
+const rateLimit = require("express-rate-limit");
 const path = require("path");
 const dotenv = require("dotenv");
 
@@ -9,8 +12,33 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
-// Middleware
+// Security headers
+app.use(helmet());
+
+// Compression
+app.use(compression());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    error: {
+      code: "RATE_LIMIT_EXCEEDED",
+      message: "Too many requests, please try again later",
+    },
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
+
+// CORS
 app.use(cors());
+
+// Body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -31,6 +59,10 @@ const connectDB = async () => {
 
 // Connect to database
 connectDB();
+
+// Connect to Redis
+const { connectRedis } = require("./utils/redis");
+connectRedis();
 
 // Routes
 app.get("/", (req, res) => {
@@ -55,6 +87,10 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/posts", require("./routes/posts"));
 app.use("/api/photos", require("./routes/photos"));
+app.use("/api/tags", require("./routes/tags"));
+app.use("/api/notifications", require("./routes/notifications"));
+app.use("/api/admin", require("./routes/admin"));
+app.use("/api/albums", require("./routes/albums"));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

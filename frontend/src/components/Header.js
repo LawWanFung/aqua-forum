@@ -33,6 +33,7 @@ import {
   Login,
 } from "@mui/icons-material";
 import { logout } from "../slices/authSlice";
+import NotificationPanel from "./NotificationPanel";
 
 const Header = ({ darkMode, toggleDarkMode, user }) => {
   const theme = useTheme();
@@ -73,6 +74,14 @@ const Header = ({ darkMode, toggleDarkMode, user }) => {
       text: "Profile",
       icon: <Person />,
       path: user ? `/profile/${user._id}` : "/",
+    },
+  ];
+
+  const adminMenuItems = [
+    {
+      text: "Admin Dashboard",
+      icon: <Person />,
+      path: "/admin",
     },
   ];
 
@@ -168,10 +177,11 @@ const Header = ({ darkMode, toggleDarkMode, user }) => {
                     variant="contained"
                     color="primary"
                     startIcon={<AddCircle />}
-                    sx={{ mr: 2 }}
+                    sx={{ mr: 1 }}
                   >
                     New Post
                   </Button>
+                  <NotificationPanel />
                   <IconButton onClick={handleMenuOpen}>
                     <Avatar src={user?.profile?.avatar} alt={user?.username}>
                       {user?.username?.charAt(0).toUpperCase()}
@@ -200,6 +210,18 @@ const Header = ({ darkMode, toggleDarkMode, user }) => {
                       </ListItemIcon>
                       Profile
                     </MenuItem>
+                    {user?.isAdmin && (
+                      <MenuItem
+                        component={Link}
+                        to="/admin"
+                        onClick={handleMenuClose}
+                      >
+                        <ListItemIcon>
+                          <Person fontSize="small" />
+                        </ListItemIcon>
+                        Admin Dashboard
+                      </MenuItem>
+                    )}
                     <MenuItem onClick={handleLogout}>
                       <ListItemIcon>
                         <Logout fontSize="small" />

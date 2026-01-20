@@ -5,6 +5,8 @@ const path = require("path");
 const fs = require("fs");
 const Photo = require("../models/Photo");
 const User = require("../models/User");
+const Tag = require("../models/Tag");
+const { getAITags, getImageVariants } = require("../utils/cloudinary");
 const { protect } = require("../middleware/auth");
 
 // Configure multer for file uploads
@@ -59,28 +61,53 @@ router.post("/upload", protect, upload.single("image"), async (req, res) => {
 
     const { title, description, aquariumType, tags } = req.body;
 
-    // Build image URL (use local path for MVP, can be replaced with Cloudinary URL)
+    // Build image URL (use local path for now)
     const imageUrl = `/uploads/${req.file.filename}`;
-    const thumbnailUrl = imageUrl; // In production, generate proper thumbnails
+    const thumbnailUrl = imageUrl;
+
+    // Get image variants if using Cloudinary
+    const variants = getImageVariants(imageUrl);
+
+    // Merge manual tags with AI tags if Cloudinary is configured
+    let allTags = tags
+      ? typeof tags === "string"
+        ? tags.split(",").map((t) => t.trim())
+        : tags
+      : [];
+
+    // Try to get AI tags from Cloudinary if URL is a Cloudinary URL
+    if (imageUrl.startsWith("http")) {
+      const aiTags = await getAITags(imageUrl);
+      const aiTagNames = aiTags.map((t) => t.tag);
+      allTags = [...allTags, ...aiTagNames];
+    }
 
     const photo = await Photo.create({
       user: req.user._id,
       imageUrl,
-      thumbnailUrl,
+      thumbnailUrl: variants.thumbnail || thumbnailUrl,
       title,
       description: description || "",
       aquariumType: aquariumType || "Other",
-      tags: tags
-        ? typeof tags === "string"
-          ? tags.split(",").map((t) => t.trim())
-          : tags
-        : [],
+      tags: allTags,
     });
 
     // Update user's photo count
     await User.findByIdAndUpdate(req.user._id, {
       $inc: { "stats.photoCount": 1 },
     });
+
+    // Track tag usage
+    const uniqueTagNames = [...new Set(allTags.map((t) => t.toLowerCase()))];
+    await Promise.all(
+      uniqueTagNames.map(async (tagName) => {
+        await Tag.findOneAndUpdate(
+          { name: tagName },
+          { $inc: { usageCount: 1 } },
+          { upsert: true, new: true },
+        );
+      }),
+    );
 
     res.status(201).json({
       success: true,

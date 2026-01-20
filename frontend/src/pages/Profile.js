@@ -205,7 +205,12 @@ const Profile = () => {
               </Typography>
             </Box>
             {isOwner && (
-              <Button variant="outlined" startIcon={<Edit />}>
+              <Button
+                component={Link}
+                to={`/profile/${userId}/edit`}
+                variant="outlined"
+                startIcon={<Edit />}
+              >
                 Edit Profile
               </Button>
             )}
