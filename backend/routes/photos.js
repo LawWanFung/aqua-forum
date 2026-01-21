@@ -3,10 +3,13 @@ const router = express.Router();
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const sharp = require("sharp");
 const Photo = require("../models/Photo");
 const User = require("../models/User");
 const Tag = require("../models/Tag");
+const { mediaService } = require("../utils/media");
 const { getAITags, getImageVariants } = require("../utils/cloudinary");
+const { queueVisionProcessing } = require("../utils/vision-queue");
 const { protect } = require("../middleware/auth");
 
 // Configure multer for file uploads
@@ -44,8 +47,38 @@ const upload = multer({
   fileFilter,
 });
 
+/**
+ * Resize image to max long side
+ */
+const resizeImage = async (inputPath, maxLongSide = 1024, quality = 85) => {
+  try {
+    const metadata = await sharp(inputPath).metadata();
+    let resizeOptions = { fit: "inside", withoutEnlargement: true };
+
+    if (maxLongSide > 0) {
+      if (metadata.width > metadata.height) {
+        resizeOptions.width = maxLongSide;
+      } else {
+        resizeOptions.height = maxLongSide;
+      }
+    }
+
+    const outputPath = inputPath.replace(/(\.[^.]+)$/, `-resized${quality}$1`);
+
+    await sharp(inputPath)
+      .resize(resizeOptions)
+      .jpeg({ quality, progressive: true })
+      .toFile(outputPath);
+
+    return outputPath;
+  } catch (error) {
+    console.error("Image resize error:", error);
+    return inputPath;
+  }
+};
+
 // @route   POST /api/photos/upload
-// @desc    Upload photo
+// @desc    Upload photo with auto-tagging via vision LLM
 // @access  Private
 router.post("/upload", protect, upload.single("image"), async (req, res) => {
   try {
@@ -59,37 +92,63 @@ router.post("/upload", protect, upload.single("image"), async (req, res) => {
       });
     }
 
-    const { title, description, aquariumType, tags } = req.body;
+    const { title, description, aquariumType, tags, enableAutoTagging } =
+      req.body;
 
-    // Build image URL (use local path for now)
-    const imageUrl = `/uploads/${req.file.filename}`;
-    const thumbnailUrl = imageUrl;
+    // Resize image if configured
+    const maxLongSide = parseInt(process.env.IMAGE_MAX_LONG_SIDE) || 1024;
+    const imageQuality = parseInt(process.env.IMAGE_QUALITY) || 85;
+    let processedFilePath = req.file.path;
 
-    // Get image variants if using Cloudinary
-    const variants = getImageVariants(imageUrl);
+    if (maxLongSide > 0) {
+      processedFilePath = await resizeImage(
+        req.file.path,
+        maxLongSide,
+        imageQuality,
+      );
+    }
 
-    // Merge manual tags with AI tags if Cloudinary is configured
+    // Upload to media service (Cloudinary, ShortPixel, or local)
+    const uploadResult = await mediaService.upload(processedFilePath, {
+      userId: req.user._id.toString(),
+      title,
+      tags: tags ? (typeof tags === "string" ? tags.split(",") : tags) : [],
+    });
+
+    // Get image variants
+    const variants = mediaService.getImageVariants(uploadResult.url);
+
+    // Merge manual tags with AI tags if available
     let allTags = tags
       ? typeof tags === "string"
         ? tags.split(",").map((t) => t.trim())
         : tags
       : [];
 
-    // Try to get AI tags from Cloudinary if URL is a Cloudinary URL
-    if (imageUrl.startsWith("http")) {
-      const aiTags = await getAITags(imageUrl);
-      const aiTagNames = aiTags.map((t) => t.tag);
-      allTags = [...allTags, ...aiTagNames];
+    // Get AI tags from media provider (if configured)
+    if (uploadResult.url.startsWith("http")) {
+      const providerTags = await mediaService.getAITags(uploadResult.url);
+      const providerTagNames = providerTags.map((t) => t.tag);
+      allTags = [...allTags, ...providerTagNames];
     }
 
+    // Create photo document
     const photo = await Photo.create({
       user: req.user._id,
-      imageUrl,
-      thumbnailUrl: variants.thumbnail || thumbnailUrl,
+      imageUrl: uploadResult.url,
+      thumbnailUrl: variants.thumbnail || uploadResult.thumbnailUrl,
+      originalUrl: uploadResult.originalUrl || uploadResult.url,
       title,
       description: description || "",
       aquariumType: aquariumType || "Other",
       tags: allTags,
+      visionStatus: "pending",
+      metadata: {
+        provider: uploadResult.provider,
+        originalSize: req.file.size,
+        optimizedSize: uploadResult.metadata?.size || 0,
+        compressionRatio: uploadResult.metadata?.compressionRatio || 0,
+      },
     });
 
     // Update user's photo count
@@ -109,10 +168,37 @@ router.post("/upload", protect, upload.single("image"), async (req, res) => {
       }),
     );
 
+    // Queue vision LLM processing if enabled (default true)
+    const autoTaggingEnabled = enableAutoTagging !== "false";
+    if (autoTaggingEnabled) {
+      // Queue the photo for vision processing
+      queueVisionProcessing(
+        photo._id.toString(),
+        processedFilePath,
+        uploadResult.url,
+        req.user._id.toString(),
+      );
+    }
+
+    // Clean up temp resized file if different from original
+    if (
+      processedFilePath !== req.file.path &&
+      fs.existsSync(processedFilePath)
+    ) {
+      // Keep the resized file for potential re-processing
+    }
+
     res.status(201).json({
       success: true,
       data: photo,
-      message: "Photo uploaded successfully",
+      message: autoTaggingEnabled
+        ? "Photo uploaded. Auto-tagging is processing in background."
+        : "Photo uploaded successfully",
+      uploadResult: {
+        url: uploadResult.url,
+        thumbnailUrl: variants.thumbnail,
+        provider: uploadResult.provider,
+      },
     });
   } catch (error) {
     console.error("Upload Photo Error:", error);
@@ -131,11 +217,18 @@ router.post("/upload", protect, upload.single("image"), async (req, res) => {
 // @access  Public
 router.get("/", async (req, res) => {
   try {
-    const { page = 1, limit = 20, aquariumType, userId } = req.query;
+    const {
+      page = 1,
+      limit = 20,
+      aquariumType,
+      userId,
+      visionStatus,
+    } = req.query;
 
     const query = {};
     if (aquariumType) query.aquariumType = aquariumType;
     if (userId) query.user = userId;
+    if (visionStatus) query.visionStatus = visionStatus;
 
     const photos = await Photo.find(query)
       .sort({ "metadata.uploadedAt": -1 })
@@ -193,9 +286,15 @@ router.get("/:photoId", async (req, res) => {
     photo.metadata.views += 1;
     await photo.save();
 
+    // Get image variants on demand
+    const variants = getImageVariants(photo.imageUrl);
+
     res.json({
       success: true,
-      data: photo,
+      data: {
+        ...photo.toObject(),
+        variants,
+      },
     });
   } catch (error) {
     console.error("Get Photo Error:", error);
@@ -243,7 +342,20 @@ router.put("/:photoId", protect, async (req, res) => {
     if (title) updateFields.title = title;
     if (description !== undefined) updateFields.description = description;
     if (aquariumType) updateFields.aquariumType = aquariumType;
-    if (tags) updateFields.tags = tags;
+    if (tags) {
+      updateFields.tags = tags;
+      // Update tag usage counts
+      const uniqueTagNames = [...new Set(tags.map((t) => t.toLowerCase()))];
+      await Promise.all(
+        uniqueTagNames.map(async (tagName) => {
+          await Tag.findOneAndUpdate(
+            { name: tagName },
+            { $inc: { usageCount: 1 } },
+            { upsert: true, new: true },
+          );
+        }),
+      );
+    }
 
     photo = await Photo.findByIdAndUpdate(
       req.params.photoId,
@@ -294,6 +406,11 @@ router.delete("/:photoId", protect, async (req, res) => {
           message: "Not authorized to delete this photo",
         },
       });
+    }
+
+    // Delete from media provider if URL is external
+    if (photo.imageUrl && photo.imageUrl.startsWith("http")) {
+      await mediaService.delete(photo.imageUrl);
     }
 
     // Delete local file if exists
@@ -373,6 +490,65 @@ router.post("/:photoId/like", protect, async (req, res) => {
       error: {
         code: "SERVER_ERROR",
         message: "Error liking photo",
+      },
+    });
+  }
+});
+
+// @route   POST /api/photos/:photoId/retag
+// @desc    Re-queue photo for vision LLM tagging
+// @access  Private
+router.post("/:photoId/retag", protect, async (req, res) => {
+  try {
+    const photo = await Photo.findById(req.params.photoId);
+
+    if (!photo) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "NOT_FOUND",
+          message: "Photo not found",
+        },
+      });
+    }
+
+    // Check ownership
+    if (photo.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: "FORBIDDEN",
+          message: "Not authorized to retag this photo",
+        },
+      });
+    }
+
+    // Reset vision status and re-queue
+    photo.visionStatus = "pending";
+    photo.visionTags = [];
+    photo.visionError = "";
+    await photo.save();
+
+    // Queue for reprocessing
+    queueVisionProcessing(
+      photo._id.toString(),
+      null, // Will download from URL
+      photo.imageUrl,
+      req.user._id.toString(),
+      { priority: "high" },
+    );
+
+    res.json({
+      success: true,
+      message: "Photo queued for retagging",
+    });
+  } catch (error) {
+    console.error("Retag Photo Error:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Error retagging photo",
       },
     });
   }

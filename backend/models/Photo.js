@@ -20,6 +20,10 @@ const photoSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    originalUrl: {
+      type: String,
+      default: "",
+    },
     title: {
       type: String,
       required: [true, "Title is required"],
@@ -42,6 +46,37 @@ const photoSchema = new mongoose.Schema(
         trim: true,
       },
     ],
+    // Vision LLM generated tags with confidence scores
+    visionTags: [
+      {
+        tag: { type: String },
+        confidence: { type: Number, min: 0, max: 1 },
+      },
+    ],
+    // Vision processing status
+    visionStatus: {
+      type: String,
+      enum: ["pending", "processing", "completed", "failed"],
+      default: "pending",
+    },
+    visionError: {
+      type: String,
+      default: "",
+    },
+    visionStartedAt: {
+      type: Date,
+    },
+    visionCompletedAt: {
+      type: Date,
+    },
+    visionModel: {
+      type: String,
+      default: "",
+    },
+    visionProcessingTime: {
+      type: Number, // in milliseconds
+      default: 0,
+    },
     metadata: {
       uploadedAt: {
         type: Date,
@@ -53,6 +88,24 @@ const photoSchema = new mongoose.Schema(
       },
       views: {
         type: Number,
+        default: 0,
+      },
+      // Media provider information
+      provider: {
+        type: String,
+        default: "cloudinary",
+      },
+      // Original file metadata
+      originalSize: {
+        type: Number, // bytes
+        default: 0,
+      },
+      optimizedSize: {
+        type: Number, // bytes
+        default: 0,
+      },
+      compressionRatio: {
+        type: Number, // percentage
         default: 0,
       },
     },
@@ -81,5 +134,30 @@ const photoSchema = new mongoose.Schema(
 photoSchema.index({ user: 1, "metadata.uploadedAt": -1 });
 photoSchema.index({ tags: 1 });
 photoSchema.index({ aquariumType: 1 });
+photoSchema.index({ "metadata.visionStatus": 1 });
+photoSchema.index({ "metadata.views": -1 });
+photoSchema.index({ "metadata.likes": -1 });
+
+// Virtual for variant URLs
+photoSchema.variant("variants", {
+  ref: "Photo",
+  localField: "_id",
+  foreignField: "photo",
+  justOne: false,
+});
+
+// Method to check if vision processing is complete
+photoSchema.methods.isVisionProcessed = function () {
+  return this.visionStatus === "completed";
+};
+
+// Method to get processing progress
+photoSchema.methods.getProcessingProgress = function () {
+  if (this.visionStatus === "pending") return 0;
+  if (this.visionStatus === "processing") return 50;
+  if (this.visionStatus === "completed") return 100;
+  if (this.visionStatus === "failed") return -1;
+  return 0;
+};
 
 module.exports = mongoose.model("Photo", photoSchema);

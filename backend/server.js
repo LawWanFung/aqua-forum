@@ -64,6 +64,10 @@ connectDB();
 const { connectRedis } = require("./utils/redis");
 connectRedis();
 
+// Initialize Vision Queue (but don't start processing yet)
+const { visionQueue } = require("./utils/vision-queue");
+console.log("Vision queue initialized");
+
 // Routes
 app.get("/", (req, res) => {
   res.json({
