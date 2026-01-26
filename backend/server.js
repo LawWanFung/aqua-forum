@@ -12,16 +12,71 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
-// Security headers
-app.use(helmet());
+// =============================================================================
+// CORS - MUST be first to handle preflight requests immediately
+// =============================================================================
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    // Allow localhost for development
+    if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+      return callback(null, true);
+    }
+
+    // In production, add your frontend domain here
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  exposedHeaders: ["Content-Range", "X-Total-Count"],
+};
+
+app.use(cors(corsOptions));
+
+// Handle OPTIONS preflight requests immediately - before any other middleware
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    console.log(
+      `[CORS PREFLIGHT] ${req.method} ${req.path} | Origin: ${req.headers.origin || "none"}`,
+    );
+    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+    );
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With",
+    );
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Max-Age", "86400"); // 24 hours cache for preflight
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// =============================================================================
+// Other middleware
+// =============================================================================
+
+// Security headers (with CSP disabled for CORS compatibility)
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 
 // Compression
 app.use(compression());
 
-// Rate limiting
+// Rate limiting - increased for development with React Query/Redux
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 500, // limit each IP to 500 requests per windowMs (increased from 100)
   message: {
     success: false,
     error: {
@@ -34,9 +89,6 @@ const limiter = rateLimit({
 });
 
 app.use(limiter);
-
-// CORS
-app.use(cors());
 
 // Body parser
 app.use(express.json());
@@ -64,10 +116,6 @@ connectDB();
 const { connectRedis } = require("./utils/redis");
 connectRedis();
 
-// Initialize Vision Queue (but don't start processing yet)
-const { visionQueue } = require("./utils/vision-queue");
-console.log("Vision queue initialized");
-
 // Routes
 app.get("/", (req, res) => {
   res.json({
@@ -92,6 +140,7 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/posts", require("./routes/posts"));
 app.use("/api/photos", require("./routes/photos"));
 app.use("/api/tags", require("./routes/tags"));
+app.use("/api/boards", require("./routes/boards"));
 app.use("/api/notifications", require("./routes/notifications"));
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/albums", require("./routes/albums"));

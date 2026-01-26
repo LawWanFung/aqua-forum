@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../api";
 
+// Fetch Posts
 export const fetchPosts = createAsyncThunk(
   "posts/fetchPosts",
   async (params = {}, { rejectWithValue }) => {
@@ -15,6 +16,7 @@ export const fetchPosts = createAsyncThunk(
   },
 );
 
+// Fetch Single Post
 export const fetchPost = createAsyncThunk(
   "posts/fetchPost",
   async (postId, { rejectWithValue }) => {
@@ -29,6 +31,7 @@ export const fetchPost = createAsyncThunk(
   },
 );
 
+// Create Post
 export const createPost = createAsyncThunk(
   "posts/createPost",
   async (postData, { rejectWithValue }) => {
@@ -43,6 +46,7 @@ export const createPost = createAsyncThunk(
   },
 );
 
+// Update Post
 export const updatePost = createAsyncThunk(
   "posts/updatePost",
   async ({ postId, data }, { rejectWithValue }) => {
@@ -57,6 +61,7 @@ export const updatePost = createAsyncThunk(
   },
 );
 
+// Delete Post
 export const deletePost = createAsyncThunk(
   "posts/deletePost",
   async (postId, { rejectWithValue }) => {
@@ -71,6 +76,7 @@ export const deletePost = createAsyncThunk(
   },
 );
 
+// Like Post
 export const likePost = createAsyncThunk(
   "posts/likePost",
   async (postId, { rejectWithValue }) => {
@@ -85,6 +91,7 @@ export const likePost = createAsyncThunk(
   },
 );
 
+// Search Posts
 export const searchPosts = createAsyncThunk(
   "posts/searchPosts",
   async (query, { rejectWithValue }) => {
@@ -99,15 +106,67 @@ export const searchPosts = createAsyncThunk(
   },
 );
 
+// Fetch Boards
+export const fetchBoards = createAsyncThunk(
+  "posts/fetchBoards",
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await api.get("/boards");
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.error?.message || "Failed to fetch boards",
+      );
+    }
+  },
+);
+
+// Fetch Posts by Board
+export const fetchPostsByBoard = createAsyncThunk(
+  "posts/fetchPostsByBoard",
+  async ({ boardId, params = {} }, { rejectWithValue }) => {
+    try {
+      const response = await api.get("/posts", {
+        params: { ...params, board: boardId },
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.error?.message || "Failed to fetch posts",
+      );
+    }
+  },
+);
+
+// Search Tags (autocomplete)
+export const searchTags = createAsyncThunk(
+  "posts/searchTags",
+  async ({ query, limit = 10 }, { rejectWithValue }) => {
+    try {
+      const response = await api.get("/tags/search", {
+        params: { q: query, limit },
+      });
+      return response.data.data.tags;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.error?.message || "Failed to search tags",
+      );
+    }
+  },
+);
+
 const initialState = {
   posts: [],
   currentPost: null,
+  boards: [],
   pagination: {
     page: 1,
     limit: 20,
     total: 0,
     pages: 0,
   },
+  selectedBoard: null,
+  tagSuggestions: [],
   loading: false,
   error: null,
 };
@@ -121,6 +180,12 @@ const postsSlice = createSlice({
     },
     clearError: (state) => {
       state.error = null;
+    },
+    setSelectedBoard: (state, action) => {
+      state.selectedBoard = action.payload;
+    },
+    clearTagSuggestions: (state) => {
+      state.tagSuggestions = [];
     },
   },
   extraReducers: (builder) => {
@@ -207,9 +272,36 @@ const postsSlice = createSlice({
       .addCase(searchPosts.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+      })
+      // Fetch Boards
+      .addCase(fetchBoards.fulfilled, (state, action) => {
+        state.boards = action.payload;
+      })
+      // Fetch Posts by Board
+      .addCase(fetchPostsByBoard.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchPostsByBoard.fulfilled, (state, action) => {
+        state.loading = false;
+        state.posts = action.payload.posts;
+        state.pagination = action.payload.pagination;
+      })
+      .addCase(fetchPostsByBoard.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Search Tags (autocomplete)
+      .addCase(searchTags.fulfilled, (state, action) => {
+        state.tagSuggestions = action.payload;
       });
   },
 });
 
-export const { clearCurrentPost, clearError } = postsSlice.actions;
+export const {
+  clearCurrentPost,
+  clearError,
+  setSelectedBoard,
+  clearTagSuggestions,
+} = postsSlice.actions;
 export default postsSlice.reducer;

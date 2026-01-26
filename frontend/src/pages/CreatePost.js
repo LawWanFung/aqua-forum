@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import {
   Container,
@@ -10,23 +10,40 @@ import {
   TextField,
   Button,
   Alert,
-  Chip,
   CircularProgress,
+  IconButton,
 } from "@mui/material";
-import { AddCircle, Send } from "@mui/icons-material";
+import { AddCircle, Send, ArrowBack } from "@mui/icons-material";
 import { createPost } from "../slices/postsSlice";
+import BoardSelector from "../components/BoardSelector";
+import TagAutocomplete from "../components/TagAutocomplete";
 
 const CreatePost = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const { loading, error } = useSelector((state) => state.posts);
+  const { loading, error, boards } = useSelector((state) => state.posts);
+  const [searchParams] = useSearchParams();
 
   const [formData, setFormData] = useState({
     title: "",
     content: "",
   });
-  const [manualTags, setManualTags] = useState("");
+  const [selectedBoards, setSelectedBoards] = useState([]);
+  const [selectedTags, setSelectedTags] = useState([]);
   const [formErrors, setFormErrors] = useState({});
+  const [boardError, setBoardError] = useState(false);
+
+  // Get the board ID from URL query param and pre-select if present
+  useEffect(() => {
+    const boardId = searchParams.get("board");
+    if (boardId && boards.length > 0) {
+      // Verify the board exists before setting
+      const boardExists = boards.some((b) => b._id === boardId);
+      if (boardExists) {
+        setSelectedBoards([boardId]);
+      }
+    }
+  }, [searchParams, boards]);
 
   const validateForm = () => {
     const errors = {};
@@ -44,8 +61,16 @@ const CreatePost = () => {
     } else if (formData.content.length > 10000) {
       errors.content = "Content cannot exceed 10000 characters";
     }
+
+    // Check boards
+    if (selectedBoards.length === 0) {
+      setBoardError(true);
+    } else {
+      setBoardError(false);
+    }
+
     setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    return Object.keys(errors).length === 0 && selectedBoards.length > 0;
   };
 
   const handleChange = (e) => {
@@ -59,18 +84,14 @@ const CreatePost = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (validateForm()) {
-      const tags = manualTags
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter((tag) => tag.length > 0);
+      const postData = {
+        title: formData.title,
+        content: formData.content,
+        boards: selectedBoards,
+        tags: selectedTags,
+      };
 
-      const result = await dispatch(
-        createPost({
-          title: formData.title,
-          content: formData.content,
-          tags,
-        }),
-      );
+      const result = await dispatch(createPost(postData));
 
       if (!result.error) {
         navigate("/");
@@ -80,13 +101,31 @@ const CreatePost = () => {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      {/* Back button */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          flexDirection: "row",
+          mb: 2,
+        }}
+      >
+        <IconButton
+          onClick={() => navigate(-1)}
+          sx={{ mb: 0.3, left: "-10px" }}
+          aria-label="go back"
+        >
+          <ArrowBack />
+        </IconButton>
+        返回
+      </Box>
+
       <Typography variant="h4" component="h1" gutterBottom fontWeight={700}>
         Create New Post 🐠
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
         Share your aquarium experience with the community
       </Typography>
-
       <Card>
         <CardContent sx={{ p: 4 }}>
           {error && (
@@ -126,27 +165,22 @@ const CreatePost = () => {
               sx={{ mb: 3 }}
             />
 
-            <TextField
-              fullWidth
-              label="Tags (optional)"
-              name="tags"
-              value={manualTags}
-              onChange={(e) => setManualTags(e.target.value)}
-              placeholder="e.g., freshwater, planted, beginner"
-              helperText="Separate tags with commas"
-              sx={{ mb: 3 }}
+            <BoardSelector
+              selectedBoards={selectedBoards}
+              onChange={setSelectedBoards}
+              error={boardError}
+              helperText={
+                boardError
+                  ? "Please select at least one board"
+                  : "Select one or more boards"
+              }
             />
 
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Auto-generated tags based on your content:
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                <i>
-                  Tags will be automatically suggested when you create your post
-                </i>
-              </Typography>
-            </Box>
+            <TagAutocomplete
+              value={selectedTags}
+              onChange={setSelectedTags}
+              placeholder="e.g., 燈魚, 孔雀魚, 水草缸"
+            />
 
             <Box sx={{ display: "flex", gap: 2 }}>
               <Button

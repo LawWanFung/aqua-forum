@@ -11,17 +11,14 @@ const { cache } = require("../utils/redis");
 // @access  Public
 router.get("/", async (req, res) => {
   try {
-    const { page = 1, limit = 50, category } = req.query;
+    const { page = 1, limit = 50 } = req.query;
 
-    const query = {};
-    if (category) query.category = category;
-
-    const tags = await Tag.find(query)
+    const tags = await Tag.find()
       .sort({ usageCount: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
-    const total = await Tag.countDocuments(query);
+    const total = await Tag.countDocuments();
 
     res.json({
       success: true,
@@ -124,6 +121,70 @@ router.get("/suggestions", async (req, res) => {
   }
 });
 
+// @route   GET /api/tags/search
+// @desc    Search tags with autocomplete (supports both Tag model and Post tags)
+// @access  Public
+router.get("/search", async (req, res) => {
+  try {
+    const { q, limit = 10 } = req.query;
+
+    if (!q || q.length < 1) {
+      return res.json({
+        success: true,
+        data: { tags: [] },
+      });
+    }
+
+    // Search in Tag collection first
+    const existingTags = await Tag.find({
+      name: { $regex: q.toLowerCase().trim(), $options: "i" },
+    })
+      .sort({ usageCount: -1 })
+      .limit(parseInt(limit));
+
+    // Also search in Post tags that might not exist in Tag collection
+    const postsWithTags = await Post.distinct("tags.tag", {
+      "tags.tag": { $regex: q.toLowerCase().trim(), $options: "i" },
+    });
+
+    // Merge and deduplicate results
+    const existingTagNames = new Set(existingTags.map((t) => t.name));
+    const additionalTags = postsWithTags
+      .filter((name) => !existingTagNames.has(name.toLowerCase()))
+      .slice(0, parseInt(limit) - existingTags.length);
+
+    const allTags = [
+      ...existingTags.map((t) => ({
+        name: t.name,
+        usageCount: t.usageCount,
+        source: "database",
+      })),
+      ...additionalTags.map((name) => ({
+        name: name,
+        usageCount: 0,
+        source: "posts",
+      })),
+    ];
+
+    res.json({
+      success: true,
+      data: {
+        tags: allTags.slice(0, parseInt(limit)),
+        query: q,
+      },
+    });
+  } catch (error) {
+    console.error("Search Tags Error:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Error searching tags",
+      },
+    });
+  }
+});
+
 // @route   GET /api/tags/:tagId
 // @desc    Get single tag
 // @access  Public
@@ -177,17 +238,6 @@ router.post(
       .trim()
       .isLength({ min: 2, max: 50 })
       .withMessage("Tag name must be 2-50 characters"),
-    body("category")
-      .optional()
-      .isIn([
-        "aquarium-type",
-        "topic",
-        "fish-species",
-        "equipment",
-        "disease",
-        "other",
-      ])
-      .withMessage("Invalid category"),
   ],
   async (req, res) => {
     try {
@@ -203,7 +253,7 @@ router.post(
         });
       }
 
-      const { name, category, relatedTags } = req.body;
+      const { name } = req.body;
       const normalizedName = name.toLowerCase().trim();
 
       // Check if tag already exists
@@ -220,8 +270,6 @@ router.post(
 
       const tag = await Tag.create({
         name: normalizedName,
-        category: category || "other",
-        relatedTags: relatedTags || [],
       });
 
       res.status(201).json({
@@ -247,12 +295,10 @@ router.post(
 // @access  Private
 router.put("/:tagId", protect, async (req, res) => {
   try {
-    const { name, category, relatedTags } = req.body;
+    const { name } = req.body;
     const updateFields = {};
 
     if (name) updateFields.name = name.toLowerCase().trim();
-    if (category) updateFields.category = category;
-    if (relatedTags) updateFields.relatedTags = relatedTags;
 
     const tag = await Tag.findByIdAndUpdate(
       req.params.tagId,

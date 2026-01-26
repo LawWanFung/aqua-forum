@@ -10,29 +10,10 @@ const tagSchema = new mongoose.Schema(
       unique: true,
       maxlength: [50, "Tag name cannot exceed 50 characters"],
     },
-    category: {
-      type: String,
-      enum: [
-        "aquarium-type",
-        "topic",
-        "fish-species",
-        "equipment",
-        "disease",
-        "other",
-      ],
-      default: "other",
-    },
     usageCount: {
       type: Number,
       default: 0,
     },
-    relatedTags: [
-      {
-        type: String,
-        trim: true,
-        lowercase: true,
-      },
-    ],
   },
   {
     timestamps: true,

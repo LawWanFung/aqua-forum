@@ -26,22 +26,37 @@ export const lightTheme = createTheme({
     fontFamily:
       '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     h1: {
+      fontSize: "2.5rem",
       fontWeight: 700,
     },
     h2: {
+      fontSize: "2rem",
       fontWeight: 600,
     },
     h3: {
+      fontSize: "1.75rem",
       fontWeight: 600,
     },
     h4: {
+      fontSize: "1.5rem",
       fontWeight: 600,
     },
     h5: {
+      fontSize: "1.25rem",
       fontWeight: 600,
     },
     h6: {
+      fontSize: "1rem",
       fontWeight: 600,
+    },
+  },
+  breakpoints: {
+    values: {
+      xs: 0,
+      sm: 600,
+      md: 900,
+      lg: 1440,
+      xl: 1536,
     },
   },
   shape: {
@@ -92,22 +107,37 @@ export const darkTheme = createTheme({
     fontFamily:
       '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     h1: {
+      fontSize: "2.5rem",
       fontWeight: 700,
     },
     h2: {
+      fontSize: "2rem",
       fontWeight: 600,
     },
     h3: {
+      fontSize: "1.75rem",
       fontWeight: 600,
     },
     h4: {
+      fontSize: "1.5rem",
       fontWeight: 600,
     },
     h5: {
+      fontSize: "1.25rem",
       fontWeight: 600,
     },
     h6: {
+      fontSize: "1rem",
       fontWeight: 600,
+    },
+  },
+  breakpoints: {
+    values: {
+      xs: 0,
+      sm: 600,
+      md: 900,
+      lg: 1440,
+      xl: 1536,
     },
   },
   shape: {

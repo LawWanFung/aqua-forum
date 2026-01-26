@@ -139,12 +139,16 @@ photoSchema.index({ "metadata.views": -1 });
 photoSchema.index({ "metadata.likes": -1 });
 
 // Virtual for variant URLs
-photoSchema.variant("variants", {
+photoSchema.virtual("variants", {
   ref: "Photo",
   localField: "_id",
   foreignField: "photo",
   justOne: false,
 });
+
+// Ensure virtuals are included when converting to JSON
+photoSchema.set("toJSON", { virtuals: true });
+photoSchema.set("toObject", { virtuals: true });
 
 // Method to check if vision processing is complete
 photoSchema.methods.isVisionProcessed = function () {

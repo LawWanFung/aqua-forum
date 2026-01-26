@@ -95,10 +95,19 @@ function App({ darkMode, toggleDarkMode }) {
   }
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+      }}
+    >
       <Header darkMode={darkMode} toggleDarkMode={toggleDarkMode} user={user} />
 
-      <Box component="main" sx={{ flexGrow: 1, py: 3 }}>
+      <Box
+        component="main"
+        sx={{ flexGrow: 1, py: 3, maxWidth: "xl", mx: "auto", width: "100%" }}
+      >
         <Routes>
           <Route path="/" element={<Home />} />
           <Route

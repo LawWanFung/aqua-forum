@@ -352,4 +352,91 @@ router.delete("/photos/:photoId", protect, admin, async (req, res) => {
   }
 });
 
+// @route   GET /api/admin/tags
+// @desc    Get all tags (admin)
+// @access  Admin
+router.get("/tags", protect, admin, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search } = req.query;
+
+    const query = {};
+    if (search) {
+      query.name = { $regex: search, $options: "i" };
+    }
+
+    const tags = await Tag.find(query)
+      .sort({ usageCount: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const total = await Tag.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        tags,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get Tags Error:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Error fetching tags",
+      },
+    });
+  }
+});
+
+// @route   DELETE /api/admin/tags/:tagId
+// @desc    Delete tag (admin)
+// @access  Admin
+router.delete("/tags/:tagId", protect, admin, async (req, res) => {
+  try {
+    const tag = await Tag.findById(req.params.tagId);
+
+    if (!tag) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "NOT_FOUND",
+          message: "Tag not found",
+        },
+      });
+    }
+
+    // Remove tag from all posts
+    await Post.updateMany(
+      { "tags.tag": tag.name },
+      { $pull: { tags: { tag: tag.name } } },
+    );
+
+    await Tag.findByIdAndDelete(req.params.tagId);
+
+    // Invalidate caches
+    await cache.delPattern("tags:*");
+
+    res.json({
+      success: true,
+      message: "Tag deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Tag Error:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Error deleting tag",
+      },
+    });
+  }
+});
+
 module.exports = router;

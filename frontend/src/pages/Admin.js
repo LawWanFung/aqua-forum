@@ -42,8 +42,105 @@ import {
   Photo,
   LocalOffer,
   Refresh,
+  Dashboard,
+  Add,
+  VisibilityOff,
+  Visibility,
+  DragIndicator,
 } from "@mui/icons-material";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import api from "../api";
+
+// Sortable Table Row Component for Boards
+function SortableTableRow({ board, onEdit, onToggle, onDelete }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: board._id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    backgroundColor: isDragging ? "#f5f5f5" : "inherit",
+  };
+
+  return (
+    <TableRow ref={setNodeRef} style={style}>
+      <TableCell
+        sx={{ cursor: "grab", width: 50 }}
+        {...attributes}
+        {...listeners}
+      >
+        <DragIndicator sx={{ color: "text.secondary" }} />
+      </TableCell>
+      <TableCell>
+        <Typography variant="h6">{board.icon}</Typography>
+      </TableCell>
+      <TableCell>
+        <Typography fontWeight={500}>{board.name}</Typography>
+        {board.description && (
+          <Typography variant="caption" color="text.secondary">
+            {board.description}
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell>
+        <code>{board.slug}</code>
+      </TableCell>
+      <TableCell>{board.postCount || 0}</TableCell>
+      <TableCell>
+        <Chip
+          label={board.isActive ? "Active" : "Inactive"}
+          size="small"
+          color={board.isActive ? "success" : "default"}
+        />
+      </TableCell>
+      <TableCell>
+        <IconButton size="small" onClick={() => onEdit(board)}>
+          <Edit fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          onClick={() => onToggle(board)}
+          color={board.isActive ? "warning" : "success"}
+        >
+          {board.isActive ? (
+            <VisibilityOff fontSize="small" />
+          ) : (
+            <Visibility fontSize="small" />
+          )}
+        </IconButton>
+        <IconButton
+          size="small"
+          onClick={() => onDelete(board._id)}
+          color="error"
+        >
+          <Delete fontSize="small" />
+        </IconButton>
+      </TableCell>
+    </TableRow>
+  );
+}
 
 const AdminDashboard = () => {
   const theme = useTheme();
@@ -57,6 +154,8 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [posts, setPosts] = useState([]);
   const [photos, setPhotos] = useState([]);
+  const [boards, setBoards] = useState([]);
+  const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -67,6 +166,37 @@ const AdminDashboard = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({ role: "", isActive: true });
 
+  // Board management
+  const [boardDialogOpen, setBoardDialogOpen] = useState(false);
+  const [editingBoard, setEditingBoard] = useState(null);
+  const [boardForm, setBoardForm] = useState({
+    name: "",
+    slug: "",
+    description: "",
+    icon: "📁",
+    color: "#1976d2",
+  });
+
+  // Tag management
+  const [tagSearch, setTagSearch] = useState("");
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [editingTag, setEditingTag] = useState(null);
+  const [tagForm, setTagForm] = useState({
+    name: "",
+  });
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
   useEffect(() => {
     if (!isAuthenticated || !user?.isAdmin) {
       navigate("/");
@@ -76,6 +206,8 @@ const AdminDashboard = () => {
     fetchUsers();
     fetchPosts();
     fetchPhotos();
+    fetchBoards();
+    fetchTags();
   }, [isAuthenticated, user, navigate]);
 
   const fetchStats = async () => {
@@ -116,6 +248,26 @@ const AdminDashboard = () => {
       setPhotos(response.data.data.photos);
     } catch (err) {
       console.error("Failed to fetch photos:", err);
+    }
+  };
+
+  const fetchBoards = async () => {
+    try {
+      const response = await api.get("/boards/all");
+      setBoards(response.data.data);
+    } catch (err) {
+      console.error("Failed to fetch boards:", err);
+    }
+  };
+
+  const fetchTags = async () => {
+    try {
+      const params = { limit: 50 };
+      if (tagSearch) params.search = tagSearch;
+      const response = await api.get("/admin/tags", { params });
+      setTags(response.data.data.tags);
+    } catch (err) {
+      console.error("Failed to fetch tags:", err);
     }
   };
 
@@ -178,6 +330,152 @@ const AdminDashboard = () => {
     }
   };
 
+  // Board management functions
+  const handleOpenBoardDialog = (board = null) => {
+    if (board) {
+      setEditingBoard(board);
+      setBoardForm({
+        name: board.name,
+        slug: board.slug,
+        description: board.description || "",
+        icon: board.icon || "📁",
+        color: board.color || "#1976d2",
+      });
+    } else {
+      setEditingBoard(null);
+      setBoardForm({
+        name: "",
+        slug: "",
+        description: "",
+        icon: "📁",
+        color: "#1976d2",
+      });
+    }
+    setBoardDialogOpen(true);
+  };
+
+  const handleSaveBoard = async () => {
+    try {
+      if (editingBoard) {
+        await api.put(`/boards/${editingBoard._id}`, boardForm);
+      } else {
+        await api.post("/boards", boardForm);
+      }
+      setBoardDialogOpen(false);
+      fetchBoards();
+    } catch (err) {
+      setError(err.response?.data?.error?.message || "Failed to save board");
+    }
+  };
+
+  const handleToggleBoardActive = async (board) => {
+    try {
+      await api.put(`/boards/${board._id}/toggle`);
+      fetchBoards();
+    } catch (err) {
+      setError(err.response?.data?.error?.message || "Failed to toggle board");
+    }
+  };
+
+  const handleDeleteBoard = async (boardId) => {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this board? Posts in this board will not be deleted.",
+      )
+    ) {
+      try {
+        await api.delete(`/boards/${boardId}`);
+        fetchBoards();
+      } catch (err) {
+        setError(
+          err.response?.data?.error?.message || "Failed to delete board",
+        );
+      }
+    }
+  };
+
+  const handleInitBoards = async () => {
+    try {
+      await api.post("/boards/init");
+      fetchBoards();
+    } catch (err) {
+      setError(
+        err.response?.data?.error?.message || "Failed to initialize boards",
+      );
+    }
+  };
+
+  // Tag management functions
+  const handleOpenTagDialog = (tag = null) => {
+    if (tag) {
+      setEditingTag(tag);
+      setTagForm({
+        name: tag.name,
+      });
+    } else {
+      setEditingTag(null);
+      setTagForm({
+        name: "",
+      });
+    }
+    setTagDialogOpen(true);
+  };
+
+  const handleSaveTag = async () => {
+    try {
+      if (editingTag) {
+        await api.put(`/tags/${editingTag._id}`, tagForm);
+      } else {
+        await api.post("/tags", tagForm);
+      }
+      setTagDialogOpen(false);
+      fetchTags();
+      fetchStats();
+    } catch (err) {
+      setError(err.response?.data?.error?.message || "Failed to save tag");
+    }
+  };
+
+  const handleDeleteTag = async (tagId) => {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this tag? This will remove it from all posts.",
+      )
+    ) {
+      try {
+        await api.delete(`/admin/tags/${tagId}`);
+        fetchTags();
+        fetchStats();
+      } catch (err) {
+        setError(err.response?.data?.error?.message || "Failed to delete tag");
+      }
+    }
+  };
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+
+    if (active.id !== over?.id) {
+      const oldIndex = boards.findIndex((board) => board._id === active.id);
+      const newIndex = boards.findIndex((board) => board._id === over.id);
+
+      const newBoards = arrayMove(boards, oldIndex, newIndex);
+      setBoards(newBoards);
+
+      // Save new order to backend
+      try {
+        const boardOrders = newBoards.map((board, index) => ({
+          id: board._id,
+          sortOrder: index,
+        }));
+        await api.put("/boards/reorder", { boardOrders });
+      } catch (err) {
+        console.error("Failed to save board order:", err);
+        fetchBoards(); // Revert on error
+      }
+    }
+  };
+
   const getRoleColor = (role) => {
     switch (role) {
       case "admin":
@@ -216,7 +514,17 @@ const AdminDashboard = () => {
         {stats && (
           <>
             <Grid item xs={6} sm={3}>
-              <Card>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  "&:hover": {
+                    bgcolor: "action.hover",
+                    transform: "translateY(-2px)",
+                  },
+                }}
+                onClick={() => setTabValue(0)}
+              >
                 <CardContent>
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <People sx={{ mr: 1, color: "primary.main" }} />
@@ -233,7 +541,17 @@ const AdminDashboard = () => {
               </Card>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Card>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  "&:hover": {
+                    bgcolor: "action.hover",
+                    transform: "translateY(-2px)",
+                  },
+                }}
+                onClick={() => setTabValue(1)}
+              >
                 <CardContent>
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <Article sx={{ mr: 1, color: "secondary.main" }} />
@@ -246,7 +564,17 @@ const AdminDashboard = () => {
               </Card>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Card>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  "&:hover": {
+                    bgcolor: "action.hover",
+                    transform: "translateY(-2px)",
+                  },
+                }}
+                onClick={() => setTabValue(2)}
+              >
                 <CardContent>
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <Photo sx={{ mr: 1, color: "success.main" }} />
@@ -259,7 +587,17 @@ const AdminDashboard = () => {
               </Card>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Card>
+              <Card
+                sx={{
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  "&:hover": {
+                    bgcolor: "action.hover",
+                    transform: "translateY(-2px)",
+                  },
+                }}
+                onClick={() => setTabValue(3)}
+              >
                 <CardContent>
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <LocalOffer sx={{ mr: 1, color: "warning.main" }} />
@@ -285,6 +623,8 @@ const AdminDashboard = () => {
           <Tab label="Users" />
           <Tab label="Posts" />
           <Tab label="Photos" />
+          <Tab label="Tags" />
+          <Tab label="Boards" />
         </Tabs>
       </Paper>
 
@@ -514,6 +854,141 @@ const AdminDashboard = () => {
         </Paper>
       )}
 
+      {/* Tags Tab */}
+      {tabValue === 3 && (
+        <Paper>
+          <Box sx={{ p: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => handleOpenTagDialog()}
+            >
+              Add Tag
+            </Button>
+            <TextField
+              size="small"
+              placeholder="Search tags..."
+              value={tagSearch}
+              onChange={(e) => setTagSearch(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && fetchTags()}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<Refresh />}
+              onClick={fetchTags}
+            >
+              Refresh
+            </Button>
+          </Box>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Usage Count</TableCell>
+                  <TableCell>Created</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {tags.map((tag) => (
+                  <TableRow key={tag._id}>
+                    <TableCell>
+                      <Typography fontWeight={500}>{tag.name}</Typography>
+                    </TableCell>
+                    <TableCell>{tag.usageCount}</TableCell>
+                    <TableCell>
+                      {new Date(tag.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenTagDialog(tag)}
+                      >
+                        <Edit fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDeleteTag(tag._id)}
+                        color="error"
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
+      {/* Boards Tab */}
+      {tabValue === 4 && (
+        <Paper>
+          <Box sx={{ p: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => handleOpenBoardDialog()}
+            >
+              Add Board
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<Dashboard />}
+              onClick={handleInitBoards}
+            >
+              Initialize Default Boards
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<Refresh />}
+              onClick={fetchBoards}
+            >
+              Refresh
+            </Button>
+          </Box>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ width: 50 }}></TableCell>
+                    <TableCell>Icon</TableCell>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Slug</TableCell>
+                    <TableCell>Posts</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <SortableContext
+                  items={boards.map((b) => b._id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <TableBody>
+                    {boards.map((board) => (
+                      <SortableTableRow
+                        key={board._id}
+                        board={board}
+                        onEdit={handleOpenBoardDialog}
+                        onToggle={handleToggleBoardActive}
+                        onDelete={handleDeleteBoard}
+                      />
+                    ))}
+                  </TableBody>
+                </SortableContext>
+              </Table>
+            </TableContainer>
+          </DndContext>
+        </Paper>
+      )}
+
       {/* Edit User Dialog */}
       <Dialog
         open={editDialogOpen}
@@ -556,6 +1031,105 @@ const AdminDashboard = () => {
         <DialogActions>
           <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveUser}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Board Dialog */}
+      <Dialog
+        open={boardDialogOpen}
+        onClose={() => setBoardDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {editingBoard ? "Edit Board" : "Create New Board"}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Board Name"
+              value={boardForm.name}
+              onChange={(e) =>
+                setBoardForm({ ...boardForm, name: e.target.value })
+              }
+              fullWidth
+              required
+            />
+            <TextField
+              label="Slug"
+              value={boardForm.slug}
+              onChange={(e) =>
+                setBoardForm({ ...boardForm, slug: e.target.value })
+              }
+              fullWidth
+              required
+              helperText="URL-friendly identifier (e.g., fish, shrimp, plant)"
+            />
+            <TextField
+              label="Description"
+              value={boardForm.description}
+              onChange={(e) =>
+                setBoardForm({ ...boardForm, description: e.target.value })
+              }
+              fullWidth
+              multiline
+              rows={2}
+            />
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <TextField
+                label="Icon"
+                value={boardForm.icon}
+                onChange={(e) =>
+                  setBoardForm({ ...boardForm, icon: e.target.value })
+                }
+                sx={{ width: 100 }}
+              />
+              <TextField
+                label="Color"
+                type="color"
+                value={boardForm.color}
+                onChange={(e) =>
+                  setBoardForm({ ...boardForm, color: e.target.value })
+                }
+                sx={{ width: 100 }}
+                InputProps={{ sx: { height: 40 } }}
+              />
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBoardDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveBoard}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Tag Dialog */}
+      <Dialog
+        open={tagDialogOpen}
+        onClose={() => setTagDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>{editingTag ? "Edit Tag" : "Create New Tag"}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Tag Name"
+              value={tagForm.name}
+              onChange={(e) => setTagForm({ ...tagForm, name: e.target.value })}
+              fullWidth
+              required
+              helperText="2-50 characters, will be converted to lowercase"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTagDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveTag}>
             Save
           </Button>
         </DialogActions>

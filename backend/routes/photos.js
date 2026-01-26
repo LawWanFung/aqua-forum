@@ -9,7 +9,6 @@ const User = require("../models/User");
 const Tag = require("../models/Tag");
 const { mediaService } = require("../utils/media");
 const { getAITags, getImageVariants } = require("../utils/cloudinary");
-const { queueVisionProcessing } = require("../utils/vision-queue");
 const { protect } = require("../middleware/auth");
 
 // Configure multer for file uploads
@@ -168,17 +167,7 @@ router.post("/upload", protect, upload.single("image"), async (req, res) => {
       }),
     );
 
-    // Queue vision LLM processing if enabled (default true)
-    const autoTaggingEnabled = enableAutoTagging !== "false";
-    if (autoTaggingEnabled) {
-      // Queue the photo for vision processing
-      queueVisionProcessing(
-        photo._id.toString(),
-        processedFilePath,
-        uploadResult.url,
-        req.user._id.toString(),
-      );
-    }
+    // Auto tagging is disabled
 
     // Clean up temp resized file if different from original
     if (
@@ -490,65 +479,6 @@ router.post("/:photoId/like", protect, async (req, res) => {
       error: {
         code: "SERVER_ERROR",
         message: "Error liking photo",
-      },
-    });
-  }
-});
-
-// @route   POST /api/photos/:photoId/retag
-// @desc    Re-queue photo for vision LLM tagging
-// @access  Private
-router.post("/:photoId/retag", protect, async (req, res) => {
-  try {
-    const photo = await Photo.findById(req.params.photoId);
-
-    if (!photo) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "NOT_FOUND",
-          message: "Photo not found",
-        },
-      });
-    }
-
-    // Check ownership
-    if (photo.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        error: {
-          code: "FORBIDDEN",
-          message: "Not authorized to retag this photo",
-        },
-      });
-    }
-
-    // Reset vision status and re-queue
-    photo.visionStatus = "pending";
-    photo.visionTags = [];
-    photo.visionError = "";
-    await photo.save();
-
-    // Queue for reprocessing
-    queueVisionProcessing(
-      photo._id.toString(),
-      null, // Will download from URL
-      photo.imageUrl,
-      req.user._id.toString(),
-      { priority: "high" },
-    );
-
-    res.json({
-      success: true,
-      message: "Photo queued for retagging",
-    });
-  } catch (error) {
-    console.error("Retag Photo Error:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "SERVER_ERROR",
-        message: "Error retagging photo",
       },
     });
   }

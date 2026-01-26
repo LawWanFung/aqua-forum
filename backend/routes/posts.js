@@ -4,14 +4,9 @@ const { body, validationResult } = require("express-validator");
 const Post = require("../models/Post");
 const User = require("../models/User");
 const Tag = require("../models/Tag");
+const Board = require("../models/Board");
 const { protect } = require("../middleware/auth");
 const { cache, redisClient } = require("../utils/redis");
-const {
-  generatePostTags,
-  mergeWithManualTags,
-  isEnabled,
-  getConfig,
-} = require("../utils/post-tagging");
 
 // @route   GET /api/posts
 // @desc    Get all posts with pagination and filtering
@@ -23,6 +18,7 @@ router.get("/", async (req, res) => {
       limit = 20,
       sort = "-metadata.createdAt",
       tag,
+      board,
     } = req.query;
 
     // Generate cache key
@@ -41,11 +37,17 @@ router.get("/", async (req, res) => {
       query["tags.tag"] = tag;
     }
 
+    // Filter by board
+    if (board) {
+      query.boards = board;
+    }
+
     const posts = await Post.find(query)
       .sort(sort)
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
-      .populate("user", "username profile.avatar");
+      .populate("user", "username profile.avatar")
+      .populate("boards", "name slug icon color");
 
     const total = await Post.countDocuments(query);
 
@@ -205,6 +207,9 @@ router.post(
       .trim()
       .isLength({ min: 10 })
       .withMessage("Content must be at least 10 characters"),
+    body("boards")
+      .isArray({ min: 1 })
+      .withMessage("Please select at least one board"),
   ],
   async (req, res) => {
     try {
@@ -220,19 +225,19 @@ router.post(
         });
       }
 
-      const { title, content, tags: manualTags, media } = req.body;
+      const { title, content, boards, tags: manualTags, media } = req.body;
 
-      // Generate AI tags from text and images
-      const aiTags = await generatePostTags({ title, content, media });
-
-      // Merge manual tags with AI tags (manual takes priority)
-      const allTags = mergeWithManualTags(manualTags, aiTags);
+      // Process tags - convert simple array to object format
+      const tags = manualTags
+        ? manualTags.map((tag) => ({ tag: tag.trim() }))
+        : [];
 
       const post = await Post.create({
         user: req.user._id,
         title,
         content,
-        tags: allTags,
+        boards,
+        tags,
         media: media || [],
       });
 
@@ -242,20 +247,36 @@ router.post(
       });
 
       // Track tag usage - increment usage count for all unique tags
-      const uniqueTagNames = [
-        ...new Set(allTags.map((t) => t.tag.toLowerCase())),
-      ];
-      await Promise.all(
-        uniqueTagNames.map(async (tagName) => {
-          await Tag.findOneAndUpdate(
-            { name: tagName },
-            { $inc: { usageCount: 1 } },
-            { upsert: true, new: true },
-          );
-        }),
-      );
+      if (tags.length > 0) {
+        const uniqueTagNames = [
+          ...new Set(tags.map((t) => t.tag.toLowerCase())),
+        ];
+        await Promise.all(
+          uniqueTagNames.map(async (tagName) => {
+            await Tag.findOneAndUpdate(
+              { name: tagName },
+              { $inc: { usageCount: 1 } },
+              { upsert: true, new: true },
+            );
+          }),
+        );
+      }
 
-      await post.populate("user", "username profile.avatar");
+      // Update board post counts
+      if (boards && boards.length > 0) {
+        await Promise.all(
+          boards.map(async (boardId) => {
+            await Board.findByIdAndUpdate(boardId, {
+              $inc: { postCount: 1 },
+            });
+          }),
+        );
+      }
+
+      await post.populate([
+        { path: "user", select: "username profile.avatar" },
+        { path: "boards", select: "name slug icon color" },
+      ]);
 
       res.status(201).json({
         success: true,
@@ -303,11 +324,36 @@ router.put("/:postId", protect, async (req, res) => {
       });
     }
 
-    const { title, content, tags, media } = req.body;
+    const { title, content, boards, tags, media } = req.body;
     const updateFields = {};
 
     if (title) updateFields.title = title;
     if (content) updateFields.content = content;
+    if (boards) {
+      // Handle board changes
+      const oldBoards = post.boards.map((b) => b.toString());
+      const newBoards = boards;
+
+      // Decrement old board counts
+      await Promise.all(
+        oldBoards
+          .filter((b) => !newBoards.includes(b))
+          .map(async (boardId) => {
+            await Board.findByIdAndUpdate(boardId, { $inc: { postCount: -1 } });
+          }),
+      );
+
+      // Increment new board counts
+      await Promise.all(
+        newBoards
+          .filter((b) => !oldBoards.includes(b))
+          .map(async (boardId) => {
+            await Board.findByIdAndUpdate(boardId, { $inc: { postCount: 1 } });
+          }),
+      );
+
+      updateFields.boards = boards;
+    }
     if (tags) updateFields.tags = tags;
     if (media) updateFields.media = media;
 
@@ -315,7 +361,9 @@ router.put("/:postId", protect, async (req, res) => {
       req.params.postId,
       { $set: updateFields },
       { new: true, runValidators: true },
-    ).populate("user", "username profile.avatar");
+    )
+      .populate("user", "username profile.avatar")
+      .populate("boards", "name slug icon color");
 
     // Invalidate cache
     await cache.del(`post:${req.params.postId}`);
@@ -495,14 +543,40 @@ router.post("/:postId/bookmark", protect, async (req, res) => {
   }
 });
 
-// @route   GET /api/posts/auto-tagging/status
-// @desc    Get auto-tagging configuration status
+// @route   GET /api/posts/:postId/boards
+// @desc    Get boards for a post
 // @access  Public
-router.get("/auto-tagging/status", (req, res) => {
-  res.json({
-    success: true,
-    data: getConfig(),
-  });
+router.get("/:postId/boards", async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.postId).populate(
+      "boards",
+      "name slug icon color description",
+    );
+
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "NOT_FOUND",
+          message: "Post not found",
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: post.boards,
+    });
+  } catch (error) {
+    console.error("Get Post Boards Error:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Error getting post boards",
+      },
+    });
+  }
 });
 
 module.exports = router;
