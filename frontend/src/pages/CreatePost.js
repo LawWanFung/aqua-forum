@@ -17,6 +17,7 @@ import { AddCircle, Send, ArrowBack } from "@mui/icons-material";
 import { createPost } from "../slices/postsSlice";
 import BoardSelector from "../components/BoardSelector";
 import TagAutocomplete from "../components/TagAutocomplete";
+import ImageUpload from "../components/ImageUpload";
 
 const CreatePost = () => {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ const CreatePost = () => {
   });
   const [selectedBoards, setSelectedBoards] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
+  const [uploadedImages, setUploadedImages] = useState([]);
   const [formErrors, setFormErrors] = useState({});
   const [boardError, setBoardError] = useState(false);
 
@@ -81,6 +83,10 @@ const CreatePost = () => {
     }
   };
 
+  const handleImagesChange = (images) => {
+    setUploadedImages(images);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (validateForm()) {
@@ -89,6 +95,7 @@ const CreatePost = () => {
         content: formData.content,
         boards: selectedBoards,
         tags: selectedTags,
+        media: uploadedImages,
       };
 
       const result = await dispatch(createPost(postData));
@@ -180,6 +187,12 @@ const CreatePost = () => {
               value={selectedTags}
               onChange={setSelectedTags}
               placeholder="e.g., 燈魚, 孔雀魚, 水草缸"
+            />
+
+            <ImageUpload
+              value={uploadedImages}
+              onChange={handleImagesChange}
+              maxImages={5}
             />
 
             <Box sx={{ display: "flex", gap: 2 }}>

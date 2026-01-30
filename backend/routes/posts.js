@@ -155,6 +155,7 @@ router.get("/:postId", async (req, res) => {
 
     const post = await Post.findById(req.params.postId)
       .populate("user", "username profile.avatar profile.bio")
+      .populate("boards", "name slug icon color")
       .populate("engagement.likes", "username");
 
     if (!post) {

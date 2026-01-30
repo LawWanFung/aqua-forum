@@ -180,7 +180,7 @@ router.post("/upload", protect, upload.single("image"), async (req, res) => {
     res.status(201).json({
       success: true,
       data: photo,
-      message: autoTaggingEnabled
+      message: enableAutoTagging
         ? "Photo uploaded. Auto-tagging is processing in background."
         : "Photo uploaded successfully",
       uploadResult: {

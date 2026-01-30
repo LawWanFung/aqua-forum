@@ -16,7 +16,7 @@ const shortpixelProvider = require("./shortpixel");
  * Get the appropriate media provider based on configuration
  */
 const getProvider = () => {
-  const provider = process.env.MEDIA_SERVICE_PROVIDER || "cloudinary";
+  const provider = process.env.MEDIA_SERVICE_PROVIDER || "local";
 
   switch (provider) {
     case "cloudinary":

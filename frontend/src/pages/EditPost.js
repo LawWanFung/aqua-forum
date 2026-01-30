@@ -204,7 +204,7 @@ const EditPost = () => {
                 <Button
                   variant="outlined"
                   size="large"
-                  onClick={() => navigate(`/posts/${postId}`)}
+                  onClick={() => navigate(`/post/${postId}`)}
                 >
                   Cancel
                 </Button>

@@ -14,8 +14,7 @@ import {
   Skeleton,
   Alert,
   Divider,
-  Grid,
-  CardMedia,
+  Modal,
 } from "@mui/material";
 import {
   Favorite,
@@ -27,9 +26,27 @@ import {
   Visibility,
   ChatBubble,
   Share,
+  Fullscreen,
+  Close,
+  ChevronLeft,
+  ChevronRight,
 } from "@mui/icons-material";
 import { fetchPost, likePost, deletePost } from "../slices/postsSlice";
-import LazyImage from "../components/LazyImage";
+import "react-image-gallery/styles/css/image-gallery.css";
+
+const styleModal = {
+  position: "absolute",
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+  maxWidth: "90vw",
+  maxHeight: "90vh",
+  bgcolor: "background.paper",
+  boxShadow: 24,
+  p: 1,
+  outline: "none",
+  borderRadius: 1,
+};
 
 const formatDate = (dateString) => {
   const date = new Date(dateString);
@@ -52,11 +69,19 @@ const PostDetail = () => {
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   useEffect(() => {
+    const abortController = new AbortController();
+
     if (postId) {
-      dispatch(fetchPost(postId));
+      dispatch(fetchPost(postId, { signal: abortController.signal }));
     }
+
+    return () => {
+      abortController.abort();
+    };
   }, [dispatch, postId]);
 
   useEffect(() => {
@@ -107,6 +132,27 @@ const PostDetail = () => {
     }
   };
 
+  const openLightbox = (index) => {
+    setCurrentImageIndex(index);
+    setLightboxOpen(true);
+  };
+
+  const closeLightbox = () => {
+    setLightboxOpen(false);
+  };
+
+  const nextImage = () => {
+    setCurrentImageIndex((prev) =>
+      prev === (currentPost?.media?.length || 1) - 1 ? 0 : prev + 1,
+    );
+  };
+
+  const prevImage = () => {
+    setCurrentImageIndex((prev) =>
+      prev === 0 ? (currentPost?.media?.length || 1) - 1 : prev - 1,
+    );
+  };
+
   if (loading) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -140,7 +186,15 @@ const PostDetail = () => {
     <Container maxWidth="md" sx={{ py: 4 }}>
       {/* Boards */}
       {currentPost.boards?.length > 0 && (
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
+        <Box
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 1,
+            mb: 3,
+            justifyContent: "flex-end",
+          }}
+        >
           {currentPost.boards.map((board, index) => (
             <Chip
               key={index}
@@ -152,13 +206,20 @@ const PostDetail = () => {
                 backgroundColor: board.color + "20",
                 border: "1px solid",
                 borderColor: board.color + "40",
+                fontSize: "0.7rem",
               }}
             />
           ))}
         </Box>
       )}
 
-      <Typography variant="h3" component="h1" gutterBottom fontWeight={700}>
+      <Typography
+        variant="h3"
+        component="h1"
+        gutterBottom
+        fontWeight={700}
+        marginBottom={3}
+      >
         {currentPost.title}
       </Typography>
 
@@ -195,26 +256,260 @@ const PostDetail = () => {
         )}
       </Box>
 
-      {/* Media Gallery */}
+      {/* Media Gallery with Carousel */}
       {currentPost.media?.length > 0 && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          {currentPost.media.map((item, index) => (
-            <Grid item xs={12} sm={6} key={index}>
-              <Card>
-                <CardMedia
-                  component="img"
-                  height="300"
-                  image={item.url}
-                  alt={`Media ${index + 1}`}
-                  loading="lazy"
-                />
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+        <Box sx={{ mb: 3 }}>
+          {/* Main carousel */}
+          <Box
+            sx={{
+              position: "relative",
+              borderRadius: 2,
+              overflow: "hidden",
+              cursor: "pointer",
+              "&:hover .nav-buttons": {
+                opacity: 1,
+              },
+            }}
+            onClick={() => openLightbox(currentImageIndex)}
+          >
+            <Box
+              component="img"
+              src={currentPost.media[currentImageIndex]?.url}
+              alt={`Image ${currentImageIndex + 1}`}
+              sx={{
+                width: "100%",
+                height: 400,
+                objectFit: "contain",
+                backgroundColor: "#f5f5f5",
+              }}
+            />
+
+            {/* Navigation buttons */}
+            {currentPost.media.length > 1 && (
+              <>
+                <IconButton
+                  className="nav-buttons"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    prevImage();
+                  }}
+                  sx={{
+                    position: "absolute",
+                    left: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    backgroundColor: "rgba(0,0,0,0.5)",
+                    color: "white",
+                    opacity: 0,
+                    transition: "opacity 0.2s",
+                    "&:hover": {
+                      backgroundColor: "rgba(0,0,0,0.7)",
+                    },
+                  }}
+                >
+                  <ChevronLeft />
+                </IconButton>
+                <IconButton
+                  className="nav-buttons"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    nextImage();
+                  }}
+                  sx={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    backgroundColor: "rgba(0,0,0,0.5)",
+                    color: "white",
+                    opacity: 0,
+                    transition: "opacity 0.2s",
+                    "&:hover": {
+                      backgroundColor: "rgba(0,0,0,0.7)",
+                    },
+                  }}
+                >
+                  <ChevronRight />
+                </IconButton>
+              </>
+            )}
+
+            {/* Fullscreen button */}
+            <IconButton
+              onClick={(e) => {
+                e.stopPropagation();
+                openLightbox(currentImageIndex);
+              }}
+              sx={{
+                position: "absolute",
+                bottom: 8,
+                right: 8,
+                backgroundColor: "rgba(0,0,0,0.5)",
+                color: "white",
+                "&:hover": {
+                  backgroundColor: "rgba(0,0,0,0.7)",
+                },
+              }}
+            >
+              <Fullscreen />
+            </IconButton>
+
+            {/* Image counter */}
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: 8,
+                left: 8,
+                backgroundColor: "rgba(0,0,0,0.5)",
+                color: "white",
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 1,
+                fontSize: 12,
+              }}
+            >
+              {currentImageIndex + 1} / {currentPost.media.length}
+            </Box>
+          </Box>
+
+          {/* Thumbnail strip */}
+          {currentPost.media.length > 1 && (
+            <Box
+              sx={{
+                display: "flex",
+                gap: 1,
+                mt: 2,
+                overflowX: "auto",
+                pb: 1,
+              }}
+            >
+              {currentPost.media.map((item, index) => (
+                <Box
+                  key={index}
+                  onClick={() => setCurrentImageIndex(index)}
+                  sx={{
+                    width: 80,
+                    height: 60,
+                    flexShrink: 0,
+                    borderRadius: 1,
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    border: index === currentImageIndex ? 2 : 0,
+                    borderColor: "primary.main",
+                    opacity: index === currentImageIndex ? 1 : 0.6,
+                    transition: "all 0.2s",
+                    "&:hover": {
+                      opacity: 1,
+                    },
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={item.url}
+                    alt={`Thumbnail ${index + 1}`}
+                    sx={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
       )}
 
-      <Card sx={{ mb: 3 }}>
+      {/* Lightbox Modal */}
+      <Modal
+        open={lightboxOpen}
+        onClose={closeLightbox}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          bgcolor: "rgba(0,0,0,0.9)",
+        }}
+      >
+        <Box sx={styleModal}>
+          {/* Close button */}
+          <IconButton
+            onClick={closeLightbox}
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              color: "white",
+              zIndex: 1,
+            }}
+          >
+            <Close />
+          </IconButton>
+
+          {/* Main image */}
+          <Box
+            component="img"
+            src={currentPost.media[currentImageIndex]?.url}
+            alt={`Image ${currentImageIndex + 1}`}
+            sx={{
+              maxWidth: "85vw",
+              maxHeight: "80vh",
+              objectFit: "contain",
+            }}
+          />
+
+          {/* Navigation */}
+          {currentPost.media.length > 1 && (
+            <>
+              <IconButton
+                onClick={prevImage}
+                sx={{
+                  position: "absolute",
+                  left: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "white",
+                  backgroundColor: "rgba(0,0,0,0.5)",
+                  "&:hover": {
+                    backgroundColor: "rgba(0,0,0,0.7)",
+                  },
+                }}
+              >
+                <ChevronLeft />
+              </IconButton>
+              <IconButton
+                onClick={nextImage}
+                sx={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "white",
+                  backgroundColor: "rgba(0,0,0,0.5)",
+                  "&:hover": {
+                    backgroundColor: "rgba(0,0,0,0.7)",
+                  },
+                }}
+              >
+                <ChevronRight />
+              </IconButton>
+            </>
+          )}
+
+          {/* Counter */}
+          <Box
+            sx={{
+              textAlign: "center",
+              color: "text.secondary",
+              mt: 1,
+            }}
+          >
+            {currentImageIndex + 1} / {currentPost.media.length}
+          </Box>
+        </Box>
+      </Modal>
+
+      <Card sx={{ mb: 8 }}>
         <CardContent>
           <Typography
             variant="body1"
@@ -231,7 +526,7 @@ const PostDetail = () => {
       {/* Tags */}
       {currentPost.tags?.length > 0 && (
         <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          <Typography variant="subtitle2" color="tags.dark" gutterBottom>
             Tags
           </Typography>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
@@ -241,6 +536,10 @@ const PostDetail = () => {
                 label={typeof tag === "object" ? tag.tag : tag}
                 variant="outlined"
                 size="small"
+                clickable
+                sx={{
+                  color: "tags.main",
+                }}
               />
             ))}
           </Box>

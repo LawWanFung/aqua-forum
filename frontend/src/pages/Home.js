@@ -26,6 +26,10 @@ import {
   setSelectedBoard,
 } from "../slices/postsSlice";
 
+// Constants
+const MAX_VISIBLE_TAGS = 5;
+
+// Format date helper
 const formatDate = (dateString) => {
   const date = new Date(dateString);
   return date.toLocaleDateString("en-US", {
@@ -35,13 +39,57 @@ const formatDate = (dateString) => {
   });
 };
 
+// Helper functions
+const getTagId = (tag) => {
+  if (typeof tag === "object" && tag._id) {
+    return tag._id;
+  }
+  return typeof tag === "string" ? tag : `tag-${JSON.stringify(tag)}`;
+};
+
+const getTagName = (tag) => {
+  if (typeof tag === "object" && tag.tag) {
+    return tag.tag;
+  }
+  return typeof tag === "string" ? tag : String(tag);
+};
+
+// Tag component for rendering individual tags
+const TagChip = ({ tag }) => {
+  const tagName = getTagName(tag);
+
+  return (
+    <Chip
+      label={tagName}
+      size="small"
+      sx={{
+        fontSize: "smaller",
+        backgroundColor: "transparent",
+        border: 1,
+        borderColor: "tags.main",
+        color: "tags.main",
+      }}
+    />
+  );
+};
+
 const PostCard = ({ post }) => {
+  const firstImage = post.media?.[0]?.url;
+
   return (
     <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <CardContent sx={{ flexGrow: 1 }}>
         {/* Boards */}
         {post.boards?.length > 0 && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+              gap: 0.5,
+              mb: 1,
+            }}
+          >
             {post.boards.slice(0, 3).map((board, index) => (
               <Chip
                 key={index}
@@ -91,6 +139,8 @@ const PostCard = ({ post }) => {
 
         <Typography
           variant="body2"
+          component={Link}
+          to={`/post/${post._id}`}
           color="text.secondary"
           sx={{
             mb: 2,
@@ -99,20 +149,41 @@ const PostCard = ({ post }) => {
             display: "-webkit-box",
             WebkitLineClamp: 3,
             WebkitBoxOrient: "vertical",
+            textDecoration: "none",
           }}
         >
           {post.content}
         </Typography>
-
+        {/* Thumbnail */}
+        {firstImage && (
+          <Box
+            sx={{
+              height: 160,
+              overflow: "hidden",
+              backgroundColor: "#f5f5f5",
+            }}
+          >
+            <img
+              src={firstImage}
+              alt={post.title}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
+          </Box>
+        )}
         {post.tags?.length > 0 && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-            {post.tags.slice(0, 5).map((tag, index) => (
-              <Chip
-                key={index}
-                label={typeof tag === "object" ? tag.tag : tag}
-                size="small"
-                variant="outlined"
-              />
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 0.5,
+            }}
+          >
+            {post.tags.slice(0, MAX_VISIBLE_TAGS).map((tag) => (
+              <TagChip key={getTagId(tag)} tag={tag} />
             ))}
           </Box>
         )}

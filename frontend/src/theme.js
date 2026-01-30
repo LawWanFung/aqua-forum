@@ -21,6 +21,11 @@ export const lightTheme = createTheme({
       primary: "#333333",
       secondary: "#666666",
     },
+    tags: {
+      main: "#90caf9",
+      light: "#e3f2fd",
+      dark: "#42a5f5",
+    },
   },
   typography: {
     fontFamily:
@@ -101,6 +106,11 @@ export const darkTheme = createTheme({
     text: {
       primary: "#ffffff",
       secondary: "#b0b0b0",
+    },
+    tags: {
+      main: "#90caf9",
+      light: "#e3f2fd",
+      dark: "#42a5f5",
     },
   },
   typography: {

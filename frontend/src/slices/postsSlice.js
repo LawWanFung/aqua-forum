@@ -19,11 +19,14 @@ export const fetchPosts = createAsyncThunk(
 // Fetch Single Post
 export const fetchPost = createAsyncThunk(
   "posts/fetchPost",
-  async (postId, { rejectWithValue }) => {
+  async (postId, { rejectWithValue, signal }) => {
     try {
-      const response = await api.get(`/posts/${postId}`);
+      const response = await api.get(`/posts/${postId}`, { signal });
       return response.data.data;
     } catch (error) {
+      if (error.name === "AbortError") {
+        return rejectWithValue("Request cancelled");
+      }
       return rejectWithValue(
         error.response?.data?.error?.message || "Failed to fetch post",
       );
